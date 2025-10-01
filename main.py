@@ -289,6 +289,128 @@ class ImageLabApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
 
+def _build_tab_rgb(self, root):
+        frm_top = ttk.Frame(root)
+        frm_top.pack(side="top", fill="x", padx=6, pady=6)
+
+        self.lbl_rgb_orig = ttk.Label(frm_top, text="Исходное (RGB)")
+        self.lbl_r = ttk.Label(frm_top, text="Канал R")
+        self.lbl_g = ttk.Label(frm_top, text="Канал G")
+        self.lbl_b = ttk.Label(frm_top, text="Канал B")
+
+        self.canvas_rgb_orig = ttk.Label(frm_top)
+        self.canvas_r = ttk.Label(frm_top)
+        self.canvas_g = ttk.Label(frm_top)
+        self.canvas_b = ttk.Label(frm_top)
+
+        self.lbl_rgb_orig.grid(row=0, column=0, padx=5, pady=(0,2))
+        self.lbl_r.grid(row=0, column=1, padx=5, pady=(0,2))
+        self.lbl_g.grid(row=0, column=2, padx=5, pady=(0,2))
+        self.lbl_b.grid(row=0, column=3, padx=5, pady=(0,2))
+
+        self.canvas_rgb_orig.grid(row=1, column=0, padx=5, pady=5)
+        self.canvas_r.grid(row=1, column=1, padx=5, pady=5)
+        self.canvas_g.grid(row=1, column=2, padx=5, pady=5)
+        self.canvas_b.grid(row=1, column=3, padx=5, pady=5)
+
+        # Гистограммы (один график с 3 кривыми)
+        frm_bottom = ttk.Frame(root)
+        frm_bottom.pack(side="top", fill="both", expand=True, padx=6, pady=(0,6))
+
+        self.fig_hist_rgb = Figure(figsize=(6.8, 3.2), dpi=100)
+        self.ax_hist_rgb = self.fig_hist_rgb.add_subplot(111)
+        self.ax_hist_rgb.set_title("Гистограммы R/G/B")
+        self.ax_hist_rgb.set_xlabel("Интенсивность (0..255)")
+        self.ax_hist_rgb.set_ylabel("Частота")
+
+        self.canvas_hist_rgb = FigureCanvasTkAgg(self.fig_hist_rgb, master=frm_bottom)
+        self.canvas_hist_rgb.get_tk_widget().pack(side="left", fill="both", expand=True, padx=5)
+
+    def refresh_rgb_tab(self):
+        if self.current_rgb_img is None:
+            return
+        img = self.current_rgb_img
+        arr = np_from_image(img)
+
+        r = arr[:, :, 0]
+        g = arr[:, :, 1]
+        b = arr[:, :, 2]
+
+        # Визуализация каналов как чистых цветов
+        r_rgb = np.zeros_like(arr)
+        r_rgb[:, :, 0] = r
+        g_rgb = np.zeros_like(arr)
+        g_rgb[:, :, 1] = g
+        b_rgb = np.zeros_like(arr)
+        b_rgb[:, :, 2] = b
+
+        self.tk_rgb_orig = pil_to_tk(img)
+        self.canvas_rgb_orig.configure(image=self.tk_rgb_orig)
+
+        self.tk_r = pil_to_tk(image_from_np(r_rgb))
+        self.canvas_r.configure(image=self.tk_r)
+
+        self.tk_g = pil_to_tk(image_from_np(g_rgb))
+        self.canvas_g.configure(image=self.tk_g)
+
+        self.tk_b = pil_to_tk(image_from_np(b_rgb))
+        self.canvas_b.configure(image=self.tk_b)
+
+        # Гистограммы каналов
+        self.ax_hist_rgb.clear()
+        self.ax_hist_rgb.set_title("Гистограммы R/G/B")
+        cr, xr = histogram_uint8(r)
+        cg, xg = histogram_uint8(g)
+        cb, xb = histogram_uint8(b)
+        self.ax_hist_rgb.plot(xr[:-1], cr, label="R")
+        self.ax_hist_rgb.plot(xg[:-1], cg, label="G")
+        self.ax_hist_rgb.plot(xb[:-1], cb, label="B")
+        self.ax_hist_rgb.set_xlim(0, 255)
+        self.ax_hist_rgb.set_xlabel("Интенсивность (0..255)")
+        self.ax_hist_rgb.set_ylabel("Частота")
+        self.ax_hist_rgb.legend()
+        self.canvas_hist_rgb.draw()
+
+        # Кэш для сохранения коллажа
+        self._rgb_cache = {
+            "r_rgb": r_rgb, "g_rgb": g_rgb, "b_rgb": b_rgb
+        }
+
+    def _save_rgb_collage(self):
+        if not hasattr(self, "_rgb_cache"):
+            messagebox.showinfo("Сохранение", "Нет результата для сохранения.")
+            return
+        r_img = image_from_np(self._rgb_cache["r_rgb"])
+        g_img = image_from_np(self._rgb_cache["g_rgb"])
+        b_img = image_from_np(self._rgb_cache["b_rgb"])
+
+        imgs = [r_img, g_img, b_img]
+        h = max(im.height for im in imgs)
+        w_sum = sum(im.width for im in imgs)
+        collage = Image.new("RGB", (w_sum, h), color=(0, 0, 0))
+        x = 0
+        for im in imgs:
+            collage.paste(im, (x, 0))
+            x += im.width
+
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg;*.jpeg"), ("Все файлы", "*.*")],
+            title="Сохранить коллаж каналов (R | G | B)"
+        )
+        if not path:
+            return
+        try:
+            if path.lower().endswith((".jpg", ".jpeg")):
+                collage.save(path, quality=95)
+            else:
+                collage.save(path)
+            messagebox.showinfo("Готово", f"Коллаж сохранён:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
+
+
 
 
 
