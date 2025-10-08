@@ -8,12 +8,12 @@ from typing import Optional, Tuple
 import numpy as np
 from PIL import Image, ImageTk
 
-# Встроим matplotlib в Tkinter
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+
+
 def pil_to_tk(img: Image.Image, max_side: int = 520) -> ImageTk.PhotoImage:
-    """Аккуратно уменьшаем изображение под предпросмотр в GUI."""
     if img is None:
         return None
     im = img.copy()
@@ -25,19 +25,16 @@ def pil_to_tk(img: Image.Image, max_side: int = 520) -> ImageTk.PhotoImage:
 
 
 def ensure_rgb(img: Image.Image) -> Image.Image:
-    """Переводим любое входное изображение в RGB для единообразной обработки."""
     if img.mode != "RGB":
         return img.convert("RGB")
     return img
 
 
 def np_from_image(img: Image.Image) -> np.ndarray:
-    """Image -> ndarray uint8 (H, W, 3)."""
     return np.asarray(img, dtype=np.uint8)
 
 
 def image_from_np(arr: np.ndarray) -> Image.Image:
-    """ndarray (H, W) или (H, W, 3) -> Image (L или RGB)."""
     arr = np.clip(arr, 0, 255).astype(np.uint8)
     if arr.ndim == 2:
         return Image.fromarray(arr, mode="L")
@@ -48,16 +45,12 @@ def image_from_np(arr: np.ndarray) -> Image.Image:
 
 
 def histogram_uint8(arr: np.ndarray, bins: int = 256) -> Tuple[np.ndarray, np.ndarray]:
-    """Гистограмма массива uint8. Возвращает (counts, bin_edges)."""
     counts, bin_edges = np.histogram(arr.flatten(), bins=bins, range=(0, 255))
     return counts, bin_edges
 
 
 
-# Преобразование серого
-
 def to_gray_bt601(rgb: np.ndarray) -> np.ndarray:
-    """Яркость по ITU-R BT.601: Y = 0.299 R + 0.587 G + 0.114 B"""
     r = rgb[:, :, 0].astype(np.float32)
     g = rgb[:, :, 1].astype(np.float32)
     b = rgb[:, :, 2].astype(np.float32)
@@ -66,13 +59,31 @@ def to_gray_bt601(rgb: np.ndarray) -> np.ndarray:
 
 
 def to_gray_bt709(rgb: np.ndarray) -> np.ndarray:
-    """Яркость по ITU-R BT.709: Y = 0.2126 R + 0.7152 G + 0.0722 B"""
     r = rgb[:, :, 0].astype(np.float32)
     g = rgb[:, :, 1].astype(np.float32)
     b = rgb[:, :, 2].astype(np.float32)
     y = 0.2126 * r + 0.7152 * g + 0.0722 * b
     return np.clip(y, 0, 255).astype(np.uint8)
 
+
+
+def rgb_to_hsv_pil(rgb_img: Image.Image) -> Image.Image:
+    return rgb_img.convert("HSV")
+
+
+def hsv_to_rgb_pil(hsv_img: Image.Image) -> Image.Image:
+    return hsv_img.convert("RGB")
+
+
+def adjust_hsv(hsv_arr: np.ndarray, hue_shift_deg: float, s_scale: float, v_scale: float) -> np.ndarray:
+    hsv = hsv_arr.astype(np.int32).copy()
+    # H: 0..255 -> градусы 0..360
+    shift_units = int(round((hue_shift_deg % 360) * 255 / 360.0))
+    hsv[:, :, 0] = (hsv[:, :, 0] + shift_units) % 256
+    # Масштабирование S и V
+    hsv[:, :, 1] = np.clip(np.round(hsv[:, :, 1] * s_scale), 0, 255)
+    hsv[:, :, 2] = np.clip(np.round(hsv[:, :, 2] * v_scale), 0, 255)
+    return hsv.astype(np.uint8)
 
 
 
@@ -90,7 +101,6 @@ class ImageLabApp(tk.Tk):
         self._build_menu()
         self._build_tabs()
 
-    # ----------------------- Верхнее меню ----------------------------
     def _build_menu(self):
         menubar = tk.Menu(self)
         filemenu = tk.Menu(menubar, tearoff=0)
@@ -101,7 +111,6 @@ class ImageLabApp(tk.Tk):
         menubar.add_cascade(label="Файл", menu=filemenu)
         self.config(menu=menubar)
 
-    # ----------------------- Вкладки Notebook ------------------------
     def _build_tabs(self):
         self.nb = ttk.Notebook(self)
         self.nb.pack(fill="both", expand=True)
@@ -118,7 +127,6 @@ class ImageLabApp(tk.Tk):
         self._build_tab_rgb(self.tab_rgb)
         self._build_tab_hsv(self.tab_hsv)
 
-    # -------------------- Общие действия -----------------------------
     def open_image(self):
         path = filedialog.askopenfilename(
             title="Выберите изображение",
@@ -149,18 +157,17 @@ class ImageLabApp(tk.Tk):
     def save_active_result(self):
         idx = self.nb.index(self.nb.select())
         if idx == 0:
-            # вкладка серого: сохраняем коллаж результатов (серый1, серый2, разность)
+            # вкладка серого
             self._save_gray_collage()
         elif idx == 1:
-            # вкладка RGB: сохраняем коллаж каналов
+            # вкладка RGB
             self._save_rgb_collage()
         elif idx == 2:
-            # вкладка HSV: сохраняем текущий RGB после коррекции
+            # вкладка HSV
             self._save_hsv_result()
         else:
             messagebox.showinfo("Сохранение", "Нет активного результата для сохранения.")
 
-    # ------------------------ Вкладка 1: Gray -------------------------
     def _build_tab_gray(self, root):
         # Верхняя панель с картинками
         frm_top = ttk.Frame(root)
@@ -176,7 +183,7 @@ class ImageLabApp(tk.Tk):
         self.canvas_g2 = ttk.Label(frm_top)
         self.canvas_diff = ttk.Label(frm_top)
 
-        # Сетка 2x4 (подписи + картинки)
+        # Сетка 2x4
         self.lbl_orig.grid(row=0, column=0, padx=5, pady=(0,2))
         self.lbl_g1.grid(row=0, column=1, padx=5, pady=(0,2))
         self.lbl_g2.grid(row=0, column=2, padx=5, pady=(0,2))
@@ -191,7 +198,7 @@ class ImageLabApp(tk.Tk):
         frm_bottom = ttk.Frame(root)
         frm_bottom.pack(side="top", fill="both", expand=True, padx=6, pady=(0,6))
 
-        # Две отдельные фигуры: для BT.601 и BT.709
+        # Две отдельные фигуры
         self.fig_hist1 = Figure(figsize=(5.0, 2.8), dpi=100)
         self.ax_hist1 = self.fig_hist1.add_subplot(111)
         self.ax_hist1.set_title("Гистограмма (BT.601)")
@@ -250,7 +257,7 @@ class ImageLabApp(tk.Tk):
         self.ax_hist2.set_ylabel("Частота")
         self.canvas_hist2.draw()
 
-        # Сохраняем для функции "сохранить коллаж"
+        # Сохраняем
         self._gray_cache = {
             "g1": g1, "g2": g2, "diff": diff
         }
@@ -289,7 +296,7 @@ class ImageLabApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
 
-def _build_tab_rgb(self, root):
+    def _build_tab_rgb(self, root):
         frm_top = ttk.Frame(root)
         frm_top.pack(side="top", fill="x", padx=6, pady=6)
 
@@ -313,7 +320,7 @@ def _build_tab_rgb(self, root):
         self.canvas_g.grid(row=1, column=2, padx=5, pady=5)
         self.canvas_b.grid(row=1, column=3, padx=5, pady=5)
 
-        # Гистограммы (один график с 3 кривыми)
+        # Гистограммы
         frm_bottom = ttk.Frame(root)
         frm_bottom.pack(side="top", fill="both", expand=True, padx=6, pady=(0,6))
 
@@ -393,7 +400,6 @@ def _build_tab_rgb(self, root):
             collage.paste(im, (x, 0))
             x += im.width
 
-
         path = filedialog.asksaveasfilename(
             defaultextension=".png",
             filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg;*.jpeg"), ("Все файлы", "*.*")],
@@ -410,8 +416,106 @@ def _build_tab_rgb(self, root):
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
 
+    def _build_tab_hsv(self, root):
+        # Левая панель: изображения
+        frm_left = ttk.Frame(root)
+        frm_left.pack(side="left", fill="both", expand=True, padx=6, pady=6)
 
+        self.lbl_hsv_orig = ttk.Label(frm_left, text="Исходное (RGB)")
+        self.lbl_hsv_res = ttk.Label(frm_left, text="Результат (после HSV-коррекции)")
 
+        self.canvas_hsv_orig = ttk.Label(frm_left)
+        self.canvas_hsv_res = ttk.Label(frm_left)
+
+        self.lbl_hsv_orig.pack(anchor="w")
+        self.canvas_hsv_orig.pack(pady=(0, 8))
+        self.lbl_hsv_res.pack(anchor="w")
+        self.canvas_hsv_res.pack()
+
+        # Правая панель: ползунки + кнопки
+        frm_right = ttk.Frame(root)
+        frm_right.pack(side="left", fill="y", padx=6, pady=6)
+
+        ttk.Label(frm_right, text="Сдвиг оттенка (Hue), градусы [-180..180]").pack(anchor="w")
+        self.scale_hue = ttk.Scale(frm_right, from_=-180.0, to=180.0, orient="horizontal", command=self._on_hsv_change)
+        self.scale_hue.set(0.0)
+        self.scale_hue.pack(fill="x", pady=5)
+
+        ttk.Label(frm_right, text="Насыщенность (S), множитель [0..2]").pack(anchor="w")
+        self.scale_sat = ttk.Scale(frm_right, from_=0.0, to=2.0, orient="horizontal", command=self._on_hsv_change)
+        self.scale_sat.set(1.0)
+        self.scale_sat.pack(fill="x", pady=5)
+
+        ttk.Label(frm_right, text="Яркость (V), множитель [0..2]").pack(anchor="w")
+        self.scale_val = ttk.Scale(frm_right, from_=0.0, to=2.0, orient="horizontal", command=self._on_hsv_change)
+        self.scale_val.set(1.0)
+        self.scale_val.pack(fill="x", pady=5)
+
+        btn_frame = ttk.Frame(frm_right)
+        btn_frame.pack(fill="x", pady=(12, 0))
+
+        ttk.Button(btn_frame, text="Сбросить (0°, S=1, V=1)", command=self.reset_hsv).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Сохранить результат…", command=self._save_hsv_result).pack(side="left", padx=4)
+
+    def refresh_hsv_tab(self):
+        if self.current_rgb_img is None:
+            return
+        # Превью исходника
+        self.tk_hsv_orig = pil_to_tk(self.current_rgb_img)
+        self.canvas_hsv_orig.configure(image=self.tk_hsv_orig)
+        # Рассчитываем результат по текущим ползункам
+        self._recompute_hsv_result()
+
+    def _on_hsv_change(self, _=None):
+        # Обновление результата при движении ползунка
+        self._recompute_hsv_result()
+
+    def _recompute_hsv_result(self):
+        if self.current_rgb_img is None:
+            return
+        # Текущие значения ползунков
+        hue_shift = float(self.scale_hue.get())
+        s_scale = float(self.scale_sat.get())
+        v_scale = float(self.scale_val.get())
+
+        # Берём HSV-массив из PIL
+        hsv_img = rgb_to_hsv_pil(self.current_rgb_img)
+        hsv_arr = np.asarray(hsv_img, dtype=np.uint8)
+        hsv_adj = adjust_hsv(hsv_arr, hue_shift, s_scale, v_scale)
+        hsv_img_adj = Image.fromarray(hsv_adj, mode="HSV")
+        rgb_res = hsv_to_rgb_pil(hsv_img_adj)
+
+        self._hsv_result_rgb = rgb_res  # кэш для сохранения
+
+        self.tk_hsv_res = pil_to_tk(rgb_res)
+        self.canvas_hsv_res.configure(image=self.tk_hsv_res)
+
+    def reset_hsv(self):
+        self.scale_hue.set(0.0)
+        self.scale_sat.set(1.0)
+        self.scale_val.set(1.0)
+        self._recompute_hsv_result()
+
+    def _save_hsv_result(self):
+        if not hasattr(self, "_hsv_result_rgb"):
+            messagebox.showinfo("Сохранение", "Нет результата для сохранения.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg;*.jpeg"), ("Все файлы", "*.*")],
+            title="Сохранить результат HSV-коррекции (RGB)"
+        )
+        if not path:
+            return
+        try:
+            img = self._hsv_result_rgb
+            if path.lower().endswith((".jpg", ".jpeg")):
+                img.save(path, quality=95)
+            else:
+                img.save(path)
+            messagebox.showinfo("Готово", f"Изображение сохранено:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
 
 
 def main():
